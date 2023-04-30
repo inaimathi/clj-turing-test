@@ -4,7 +4,25 @@
             [reagent.core :as r]
             [reagent.dom :as rd]))
 
-(defonce messages (r/atom []))
+(defonce username (r/atom "inaimathi"))
+
+(defonce messages
+  (r/atom []))
+
+(defonce ws-messages (r/atom []))
+
+(defn ws-list [ms]
+  (->> ms (map (fn [m] [:li [:code (.-data m)]]))
+       (cons :ul) vec))
+
+(defn ws-endpoint []
+  (let [loc (.-location js/window)
+        url (str (if (= "https:" (.-protocol loc)) "wss:" "ws:")
+                 "//"
+                 (.-host loc)
+                 "/socket")]
+    (.log js/console "WS: " url)
+    url))
 
 (defonce current-message (r/atom ""))
 
@@ -13,12 +31,12 @@
 
 (defn message-list [messages]
   (->> messages
-       (map (fn [m] [:li m]))
+       (map (fn [m] [:li (:name m) ": " (:content m)]))
        (cons :ul)
        vec))
 
 (defn send-message! []
-  (swap! messages #(conj % @current-message))
+  (swap! messages #(conj % {:role "user" :name @username :content @current-message}))
   (reset! current-message ""))
 
 (defn game []
@@ -27,6 +45,7 @@
    [:h1 "Turing Test!!!"]
    [:h5 "(but from the FE though...)"]
    (message-list @messages)
+   (ws-list @ws-messages)
    [:input {:type "text"
             :value @current-message
             :class "messageInput"
@@ -38,7 +57,7 @@
    [:button {:on-click send-message! } "Submit"]])
 
 (defn ^:export run []
-  (rd/render [game] ($ "body")))
+  (rd/render [game] ($ "#screen")))
 
 (.log js/console "HELLO FROM CLJS")
 
@@ -51,4 +70,10 @@
 (on-load
  (fn []
    (.log js/console "DOMContentLoaded callback")
-   (run)))
+   (run)
+   (let [ws (js/WebSocket. (ws-endpoint))]
+     (aset
+      ws "onmessage"
+      (fn [m]
+        (.log js/console "Received " m)
+        (swap! ws-messages #(conj % m)))))))

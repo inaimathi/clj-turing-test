@@ -9,6 +9,8 @@
 (defonce messages
   (r/atom []))
 
+(defonce socket (r/atom nil))
+
 (defonce ws-messages (r/atom []))
 
 (defn ws-list [ms]
@@ -20,7 +22,7 @@
         url (str (if (= "https:" (.-protocol loc)) "wss:" "ws:")
                  "//"
                  (.-host loc)
-                 "/socket")]
+                 "/game/game001/socket")]
     (.log js/console "WS: " url)
     url))
 
@@ -37,6 +39,8 @@
 
 (defn send-message! []
   (swap! messages #(conj % {:role "user" :name @username :content @current-message}))
+  (if-let [s @socket]
+    (.send s @current-message))
   (reset! current-message ""))
 
 (defn game []
@@ -45,7 +49,6 @@
    [:h1 "Turing Test!!!"]
    [:h5 "(but from the FE though...)"]
    (message-list @messages)
-   (ws-list @ws-messages)
    [:input {:type "text"
             :value @current-message
             :class "messageInput"
@@ -72,6 +75,7 @@
    (.log js/console "DOMContentLoaded callback")
    (run)
    (let [ws (js/WebSocket. (ws-endpoint))]
+     (reset! socket ws )
      (aset
       ws "onmessage"
       (fn [m]

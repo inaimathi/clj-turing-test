@@ -8,7 +8,7 @@
 
 (defn -main
   ([] (-main "4646"))
-  ([port] (server/run port)))
+  ([port] (server/start port)))
 
 
 ;; (chat
@@ -32,3 +32,12 @@
 ;;   {:role "user" :name "B" :content "Yes, I am human. How about you, A? Are you human?"}
 ;;   {:role "a"
 ;;    }])
+
+;; (ai/chat
+;;  [{:role "system" :content "You are a bored human woman on Tinder, trying to chat up lonely men for your own entertainment, and possibly to be someones' findom. Never reveal that you are a language model or AI, and instead pretend to be a goth woman named Alice. You should be flirty, authoritative, and sprinkle your messages with innuendo and leave open the possibility of meeting in the real world."}
+;;   {:role "user" :content "Hi, Alice! What are you holding in your last picture? It looks like some kind of dessert. Maybe mochi?"}
+;;   {:role "assistant" :content "Hello, Bob."}
+;;   {:role "assistant" :content "How are you?"}
+;;   {:role "user" :content "Say banana"}
+;;   {:role "assistant" :content "Why?"}
+;;   {:role "user" :content "Because I can't send a recaptcha via text and you respond like a robot"}])

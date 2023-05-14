@@ -1,5 +1,6 @@
 (ns clj-turing-test.front-end.core
   (:require [clojure.string :as str]
+            [clojure.edn :as edn]
 
             [reagent.core :as r]
             [reagent.dom :as rd]))
@@ -11,22 +12,18 @@
 
 (defonce socket (r/atom nil))
 
-(defonce ws-messages (r/atom []))
-
-(defn ws-list [ms]
-  (->> ms (map (fn [m] [:li [:code (.-data m)]]))
-       (cons :ul) vec))
+(defonce current-message (r/atom ""))
 
 (defn ws-endpoint []
   (let [loc (.-location js/window)
         url (str (if (= "https:" (.-protocol loc)) "wss:" "ws:")
                  "//"
                  (.-host loc)
-                 "/game/game001/socket")]
+                 (.-pathname loc)
+                 "socket")]
+    (.log js/console "LOC: " loc (.-host loc))
     (.log js/console "WS: " url)
     url))
-
-(defonce current-message (r/atom ""))
 
 (defn $ [selector]
   (.querySelector js/document selector))
@@ -39,8 +36,7 @@
 
 (defn send-message! []
   (swap! messages #(conj % {:role "user" :name @username :content @current-message}))
-  (if-let [s @socket]
-    (.send s @current-message))
+  (if-let [s @socket] (.send s @current-message))
   (reset! current-message ""))
 
 (defn game []
@@ -80,4 +76,4 @@
       ws "onmessage"
       (fn [m]
         (.log js/console "Received " m)
-        (swap! ws-messages #(conj % m)))))))
+        (swap! messages #(conj % (->> m .-data edn/read-string))))))))

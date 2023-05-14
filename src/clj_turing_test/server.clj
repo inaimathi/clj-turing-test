@@ -15,37 +15,32 @@
      :headers {"Content-Type" (str content-type "; charset=utf-8")}
      :body (slurp (io/resource name))}))
 
-(def clients (atom {}))
-
 (def games (atom {}))
-
-(defn websocket [req]
-  (server/with-channel req conn
-    (swap! clients assoc conn true)
-    (println conn " connected")
-    (server/on-close conn (fn [status]
-                            (swap! clients dissoc conn)
-                            (println conn " disconnected")))))
 
 (defn game-socket [req]
   (server/with-channel req conn
-    (swap! games #(assoc-in % [(get-in req [:route-params :game-id]) conn] true))
-    (println conn " connected")
-    (server/on-close
-     conn
-     (fn [status]
-       (swap! clients dissoc conn)
-       (println conn " disconnected")))
-    (server/on-receive
-     conn
-     (fn [data]
-       (println conn "RECEIVED: " data)))))
+    (let [game-id (get-in req [:route-params :game-id])]
+      (swap! games #(assoc-in % [game-id :sockets conn] true))
+      (println conn " connected")
+      (server/on-close
+       conn
+       (fn [status]
+         (swap! games #(update-in % [game-id :sockets] dissoc conn))
+         (println conn " disconnected")))
+      (server/on-receive
+       conn
+       (fn [data]
+         (println "RECEIVED: " conn data req))))))
 
 (defn broadcast! [game-id msg]
   (doseq [game (get @games game-id)]
     (server/send! (key game) msg false)))
 
-(defn home [req]
+(defn public-address! [msg]
+  (doseq [game-id (keys @games)]
+    (broadcast! game-id msg)))
+
+(defn game-page [req]
   {:status 200
    :headers {"Content-Type" "text/html"}
    :body (hic/html
@@ -55,6 +50,21 @@
             [:div {:id "screen"}
              [:h3 "Welcome to"]
              [:h1 "Turing Test"]]]])})
+
+(defn home-page [req]
+  {:status 200
+   :headers {"Content-Type" "text/html"}
+   :body (hic/html
+          [:html
+           [:body
+            [:div {:id "games"}
+             [:ul
+              (map
+               (fn [[game-id struct]]
+                 [:li
+                  [:a {:href (str "/game/" game-id "/")} game-id]
+                  [:pre (str [game-id struct])]])
+               @games)]]]])})
 
 (defn tap [req]
   {:status 200
@@ -66,14 +76,13 @@
             [:pre (str req)]]])})
 
 (def routes
-  ["" [["" home]
-       ["/" home]
-       [["/game/" :game-id] {"/" tap
+  ["" [["" home-page]
+       ["/" home-page]
+       [["/game/" :game-id] {"/" game-page
                              "/socket" game-socket
                              "/history" tap
                              "/message" tap}]
-       ["/js/turing.js" (serve-resource "turing.js" "application/javascript")]
-       ["/socket" websocket]]])
+       ["/js/turing.js" (serve-resource "turing.js" "application/javascript")]]])
 
 
 (defonce +server+ (atom nil))

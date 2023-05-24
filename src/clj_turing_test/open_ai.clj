@@ -40,6 +40,33 @@
    :body {:model "gpt-3.5-turbo"
           :messages messages}))
 
+(defn -api-audio [endpoint filename {:keys [prompt model response-format temperature language version] :or {prompt "" model "whisper-1" response-format :json temperature 1.0 language "en" version "v1"}}]
+  (let [file (io/file filename)]
+    (assert (.exists file))
+    (assert (>= 1.0 temperature 0.0))
+    (assert (#{:json :text :srt :verbose_json :vtt} response-format))
+    (let [callback (fn [{:keys [status headers body error]}]
+                     (if error
+                       (println "FAILED: " error)
+                       (json/decode body)))
+          req-props {:url (str "https://api.openai.com/" version "/audio/" endpoint)
+                     :headers {"Authorization" (str "Bearer " API_KEY)
+                               "Content-Type" "multipart/form-data"}
+                     :method :post
+                     :multipart [{:name "language" :content language}
+                                 {:name "temperature" :content (str temperature)}
+                                 {:name "model" :content model}
+                                 {:name "prompt" :content prompt}
+                                 {:name "response_format" :content (name response-format)}
+                                 {:name "file" :content file :filename (.getName file)}]}]
+      @(http/request req-props callback))))
+
+(defn transcription [filename & {:keys [prompt response-format temperature language] :as opts}]
+  (-api-audio "transcriptions" filename opts))
+
+(defn translation [filename & {:keys [prompt response-format temperature] :as opts}]
+  (-api-audio "translations" filename opts))
+
 (defn -image-urls [response]
   (map #(get % "url") (get response "data")))
 
@@ -47,55 +74,50 @@
   (assert (>= 10 count 1))
   (assert (#{256 512 1024} size))
   (assert (#{:url :b64_json} response-format))
-  (-image-urls
-   (-api-openai
-    "images/generations"
-    :body {:prompt prompt
-           :n count
-           :size (str size "x" size)
-           :response_format response-format})))
+  (let [res (-api-openai
+             "images/generations"
+             :body {:prompt prompt
+                    :n count
+                    :size (str size "x" size)
+                    :response_format response-format})]
+    (if (= :url response-format)
+      (-image-urls res)
+      res)))
 
-;; (defn -api-openai-file [endpoint filename {:keys [count version size response-format user mask prompt] :or {version "v1"}}]
-;;   (let [callback (fn [{:keys [status headers body error]}]
-;;                    (if error
-;;                      (println "FAILED: " error)
-;;                      (json/decode body)))
-;;         req-props {:url (str "https://api.openai.com/" version "/images/" endpoint)
-;;                    :headers {"Authorization" (str "Bearer " API_KEY)}
-;;                    :method :post
-;;                    :multipart [{:name "n" :content (str count)}
-;;                                {:name "size" :content (str size "x" size)}
-;;                                {:name "response_format" :content (name response-format)}
-;;                                {:name "image" :content (io/file filename) :filename "test.png"}]}]
-;;     ;; (println (str req-props))
-;;     @(http/request req-props callback)))
-
-;; (defn image-edit [image prompt & {:keys [count size response-format mask user] :or {count 1 size 1024 response-format :url} :as props}]
-;;   (assert (>= 10 count 1))
-;;   (assert (#{256 512 1024} size))
-;;   (assert (#{:url :b64_json} response-format))
-;;   (-api-openai-file
-;;    "edits" image
-;;    {:mask mask
-;;     :prompt prompt
-;;     :n count
-;;     :size (str size "x" size)
-;;     :response_format response-format}))
-
-(defn image-variations [image & {:keys [count size response-format user] :or {count 1 size 1024 response-format :url} :as props}]
-  (assert (>= 10 count 1))
-  (assert (#{256 512 1024} size))
+(defn -api-image-file [endpoint filename {:keys [count version size response-format user mask prompt] :or {version "v1" size 1024 mask (str "mask-" size ".png") response-format :url count 1}}]
   (assert (#{:url :b64_json} response-format))
-  (let [callback (fn [{:keys [status headers body error]}]
-                   (if error
-                     (println "FAILED: " error)
-                     (json/decode body)))
-        req-props {:url (str "https://api.openai.com/v1/images/variations")
-                   :headers {"Authorization" (str "Bearer " API_KEY)}
-                   :method :post
-                   :multipart [{:name "n" :content (str count)}
-                               {:name "size" :content (str size "x" size)}
-                               {:name "response_format" :content (name response-format)}
-                               {:name "image" :content (io/file image) :filename image}]}]
-    ;; (println (str req-props))
-    (-image-urls @(http/request req-props callback))))
+  (assert (#{256 512 1024} size))
+  (assert (>= 10 count 1))
+  (let [file (io/file filename)
+        mfile (io/file (io/resource mask))]
+    (assert (.exists file))
+    (assert (.exists mfile))
+    (let [callback (fn [{:keys [status headers body error]}]
+                     (if error
+                       (println "FAILED: " error)
+                       (json/decode body)))
+          multipart [{:name "n" :content (str count)}
+                     {:name "size" :content (str size "x" size)}
+                     {:name "response_format" :content (name response-format)}
+                     {:name "mask" :content mfile :filename (.getName mfile)}
+                     {:name "image" :content file :filename (.getName file)}]
+          req-props {:url (str "https://api.openai.com/" version "/images/" endpoint)
+                     :headers {"Authorization" (str "Bearer " API_KEY)
+                               "Content-Type" "multipart/form-data"}
+                     :method :post
+                     :multipart (if prompt
+                                  (conj multipart {:name "prompt" :content prompt})
+                                  multipart)}]
+      @(http/request req-props callback))))
+
+(defn image-edit [image prompt & {:keys [count size response-format user mask] :as opts}]
+  (let [res (-api-image-file "edits" image (assoc opts :prompt prompt))]
+    (if (= :url response-format)
+      (-image-urls res)
+      res)))
+
+(defn image-variations [image & {:keys [count size response-format user] :as opts}]
+  (let [res (-api-image-file "variations" image opts)]
+    (if (= :url response-format)
+      (-image-urls res)
+      res)))

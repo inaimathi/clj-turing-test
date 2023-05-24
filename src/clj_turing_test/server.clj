@@ -6,7 +6,9 @@
             [bidi.ring :as bring]
 
             [ring.middleware.params :refer [wrap-params]]
-            [ring.middleware.session :refer [wrap-session]]))
+            [ring.middleware.session :refer [wrap-session]]
+
+            [clj-turing-test.model :as model]))
 
 (defn serve-resource
   [name content-type]
@@ -40,6 +42,12 @@
   (doseq [game-id (keys @games)]
     (broadcast! game-id msg)))
 
+(defn new-game-page [req]
+  (let [game-id (str (java.util.UUID/randomUUID))]
+    (swap! games #(update-in % [game-id :model] (fn [_] (model/mk-turing-test ["inaimathi"] 3))))
+    {:status 302
+     :headers {"Location" (str "/game/" game-id "/")}}))
+
 (defn game-page [req]
   {:status 200
    :headers {"Content-Type" "text/html"}
@@ -52,19 +60,21 @@
              [:h1 "Turing Test"]]]])})
 
 (defn home-page [req]
-  {:status 200
-   :headers {"Content-Type" "text/html"}
-   :body (hic/html
-          [:html
-           [:body
-            [:div {:id "games"}
-             [:ul
-              (map
-               (fn [[game-id struct]]
-                 [:li
-                  [:a {:href (str "/game/" game-id "/")} game-id]
-                  [:pre (str [game-id struct])]])
-               @games)]]]])})
+    {:status 200
+     :headers {"Content-Type" "text/html"}
+     :body (hic/html
+            [:html
+             [:body
+              [:h1 "Turing Test"]
+              [:div {:id "games"}
+               [:ul
+                (map
+                 (fn [[game-id struct]]
+                   [:li
+                    [:a {:href (str "/game/" game-id "/")} game-id]
+                    [:pre (str [game-id struct])]])
+                 @games)]]
+              [:a {:href "/new-game"} "New Game"]]])})
 
 (defn tap [req]
   {:status 200
@@ -78,7 +88,9 @@
 (def routes
   ["" [["" home-page]
        ["/" home-page]
-       [["/game/" :game-id] {"/" game-page
+       ["/new-game" new-game-page]
+       [["/game/" :game-id] {"" game-page
+                             "/" game-page
                              "/socket" game-socket
                              "/history" tap
                              "/message" tap}]

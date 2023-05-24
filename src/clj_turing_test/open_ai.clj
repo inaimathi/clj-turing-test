@@ -6,23 +6,11 @@
             [org.httpkit.sni-client :as sni-client]
             [cheshire.core :as json]))
 
+;;;;; Config and basics
 ;; Change default client for your whole application:
 (alter-var-root #'org.httpkit.client/*default-client* (fn [_] sni-client/default-client))
 
 (def API_KEY "LOLNOPE")
-
-(defn map->multipart [m]
-  (->> m
-       (map
-        (fn [[k v]]
-          (let [res {:name (if (keyword? k) (name k) (str k))
-                     :content (cond (keyword? v) (name v)
-                                    (= java.io.File (class v)) v
-                                    :else (str v))}]
-            (if (= java.io.File (class v))
-              (assoc res :filename (.getName v))
-              res))))
-       (into [])))
 
 (defn -api-openai [endpoint & {:keys [body multipart version method] :or {version "v1" method :get}}]
   (assert (or (and body (not multipart))
@@ -44,28 +32,66 @@
                    :else min-opts)]
     @(http/request opts callback)))
 
+;;;;;;;;;; Models
 (defn models []
   (-> (-api-openai "models")
       json/decode
       (get "data")))
 
-(defn completion [prompt]
+;;;;;;;;;; Text-related API
+(defn completion [prompt & {:keys [model max-tokens temperature count echo]
+                            :or {model "text-davinci-003" max-tokens 2048 temperature 1.0 count 1 echo false}}]
+  ;; TODO - stream logprobs stop presence_penalty frequency_penalty best_of logit_bias user
+  (assert (>= 2048 max-tokens))
+  (assert (>= 2.0 temperature 0.0))
   (json/decode
    (-api-openai
     "completions"
-    :body {:model "text-davinci-003"
-           :prompt prompt
-           :max_tokens 2048
-           :temperature 1})))
+    :body {:prompt prompt
+           :model model
+           :n count
+           :max_tokens max-tokens
+           :echo (boolean echo)
+           :temperature temperature})))
 
-(defn chat [messages]
+(defn chat [messages & {:keys [model temperature count max-tokens] :or {model "gpt-3.5-turbo" temperature 1.0 count 1 max-tokens ##Inf}}]
+  (assert
+   (every?
+    (fn [msg]
+      (and (select-keys msg [:role :content :name])
+           (#{:system :user :assistant} (:role msg))
+           (string? (:content msg))))
+    messages))
+  (assert (>= 2.0 temperature 0.0))
+  (assert (>= max-tokens 1))
+  ;; TOTO - stream stop presence_penalty fequency_penalty logit_bias user
   (json/decode
    (-api-openai
     "chat/completions"
-    :body {:model "gpt-3.5-turbo"
+    :body {:model model
+           :n count :temperature temperature
+           :max_tokens max-tokens
            :messages messages})))
 
-(defn -api-audio [endpoint filename {:keys [prompt model response-format temperature language version] :or {prompt "" model "whisper-1" response-format :json temperature 1.0 language "en" version "v1"}}]
+;;;;; File-related section
+;;;;;;;;;; Utility
+(defn map->multipart
+  "General file request utility. Takes a map and returns a multi-part set of parameters suitable for feeding into the API"
+  [m]
+  (->> m
+       (map
+        (fn [[k v]]
+          (let [res {:name (if (keyword? k) (name k) (str k))
+                     :content (cond (keyword? v) (name v)
+                                    (= java.io.File (class v)) v
+                                    :else (str v))}]
+            (if (= java.io.File (class v))
+              (assoc res :filename (.getName v))
+              res))))
+       (into [])))
+
+;;;;;;;;;; Audio API
+(defn -api-audio [endpoint filename {:keys [prompt model response-format temperature language] :or {prompt "" model "whisper-1" response-format :json temperature 1.0 language "en"}}]
   (let [file (io/file filename)]
     (assert (.exists file))
     (assert (>= 1.0 temperature 0.0))
@@ -90,6 +116,7 @@
 (defn translation [filename & {:keys [prompt response-format temperature] :as opts}]
   (-api-audio "translations" filename opts))
 
+;;;;;;;;;; Images API
 (defn -image-resp [format response]
   (let [res-slot (name format)
         decoded (json/decode response)
@@ -119,7 +146,7 @@
           (.write w body))
         error))))
 
-(defn image [prompt & {:keys [count size response-format user] :or {count 1 size 1024 response-format :url}}]
+(defn image [prompt & {:keys [count size response-format] :or {count 1 size 1024 response-format :url}}]
   (assert (>= 10 count 1))
   (assert (#{256 512 1024} size))
   (assert (#{:url :b64_json} response-format))
@@ -132,7 +159,7 @@
            :size (str size "x" size)
            :response_format response-format})))
 
-(defn image-edit [filename prompt & {:keys [mask count size response-format user] :or {size 1024 response-format :url count 1} :as opts}]
+(defn image-edit [filename prompt & {:keys [mask count size response-format] :or {size 1024 response-format :url count 1} :as opts}]
   (assert (#{:url :b64_json} response-format))
   (assert (#{256 512 1024} size))
   (assert (>= 10 count 1))
@@ -149,7 +176,7 @@
        (-api-openai "images/edits"
         :method :post :multipart multipart)))))
 
-(defn image-variations [filename & {:keys [count size response-format user] :or {size 1024 response-format :url count 1} :as opts}]
+(defn image-variations [filename & {:keys [count size response-format] :or {size 1024 response-format :url count 1} :as opts}]
   (assert (#{:url :b64_json} response-format))
   (assert (#{256 512 1024} size))
   (assert (>= 10 count 1))

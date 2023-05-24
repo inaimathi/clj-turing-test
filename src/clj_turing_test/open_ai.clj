@@ -110,6 +110,15 @@
              :message (eget "message")})
       (map #(get % res-slot) (get decoded "data")))))
 
+(defn image-url->file [url path]
+  @(http/get
+    url {:as :byte-array}
+    (fn [{:keys [status headers body error opts]}]
+      (if (= 200 status)
+        (with-open [w (java.io.BufferedOutputStream. (java.io.FileOutputStream. path))]
+          (.write w body))
+        error))))
+
 (defn image [prompt & {:keys [count size response-format user] :or {count 1 size 1024 response-format :url}}]
   (assert (>= 10 count 1))
   (assert (#{256 512 1024} size))
@@ -123,31 +132,29 @@
            :size (str size "x" size)
            :response_format response-format})))
 
-(defn -api-image-file [endpoint filename {:keys [count version size response-format user mask prompt] :or {version "v1" size 1024 mask (str "mask-" size ".png") response-format :url count 1}}]
+(defn image-edit [filename prompt & {:keys [mask count size response-format user] :or {size 1024 response-format :url count 1} :as opts}]
   (assert (#{:url :b64_json} response-format))
   (assert (#{256 512 1024} size))
   (assert (>= 10 count 1))
   (let [file (io/file filename)
-        mfile (io/file (io/resource mask))]
+        mfile (io/file (io/resource (or mask (str "mask-" size ".png"))))]
     (assert (.exists file))
     (assert (.exists mfile))
     (let [props {:n count :size (str size "x" size)
                  :response_format response-format
                  :image file :mask mfile}
           multipart (map->multipart (if prompt (assoc props :prompt prompt) props))]
-      (println "MULTIPART" multipart)
-      (json/decode
-       (-api-openai
-        (str "images/" endpoint)
-        :method :post
-        :multipart multipart)))))
+      (-image-resp
+       response-format
+       (-api-openai "images/edits"
+        :method :post :multipart multipart)))))
 
-(defn image-edit [image prompt & {:keys [count size response-format user mask] :as opts}]
-  (-image-resp
-   response-format
-   (-api-image-file "edits" image (assoc opts :prompt prompt))))
-
-(defn image-variations [image & {:keys [count size response-format user] :as opts}]
-  (-image-resp
-   response-format
-   (-api-image-file "variations" image opts)))
+(defn image-variations [filename & {:keys [count size response-format user] :or {size 1024 response-format :url count 1} :as opts}]
+  (assert (#{:url :b64_json} response-format))
+  (assert (#{256 512 1024} size))
+  (assert (>= 10 count 1))
+  (let [file (io/file filename)]
+    (assert (.exists file))
+    (let [props {:n count :size (str size "x" size) :response_format response-format :image file}
+          multipart (map->multipart props)]
+      (-image-resp response-format (-api-openai "images/variations" :method :post :multipart multipart)))))

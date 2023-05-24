@@ -39,22 +39,40 @@
       (get "data")))
 
 ;;;;;;;;;; Text-related API
-(defn completion [prompt & {:keys [model max-tokens temperature count echo]
-                            :or {model "text-davinci-003" max-tokens 2048 temperature 1.0 count 1 echo false}}]
-  ;; TODO - stream logprobs stop presence_penalty frequency_penalty best_of logit_bias user
+(defn -filter-nil [m]
+  (into {} (keep (fn [e] (if (val e) e)) m)))
+
+(defn completion [prompt & {:keys [model max-tokens temperature count echo stop presence-penalty frequency-penalty logprobs best-of]
+                            :or {model "text-davinci-003" max-tokens 2048 temperature 1.0 count 1 echo false
+                                 presence-penalty 0 frequency-penalty 0 best-of 1}}]
+  ;; TODO - stream logit_bias user
   (assert (>= 2048 max-tokens))
   (assert (>= 2.0 temperature 0.0))
+  (assert (or (nil? stop) (string? stop) (every? string? stop)))
+  (assert (>= 2.0 presence-penalty -2.0))
+  (assert (>= 2.0 frequency-penalty -2.0))
+  (assert (or (nil? logprobs) (>= 5 logprobs 1)))
+  (assert (or (>= best-of count)))
   (json/decode
-   (-api-openai
-    "completions"
-    :body {:prompt prompt
-           :model model
-           :n count
-           :max_tokens max-tokens
-           :echo (boolean echo)
-           :temperature temperature})))
+    (-api-openai
+     "completions"
+     :body (-filter-nil
+            {:prompt prompt
+             :model model
+             :n count
+             :max_tokens max-tokens
+             :echo (boolean echo)
+             :temperature temperature
+             :stop stop
+             :logprobs logprobs
+             :presence_penalty presence-penalty
+             :frequency_penalty frequency-penalty
+             :best_of best-of}))))
 
-(defn chat [messages & {:keys [model temperature count max-tokens] :or {model "gpt-3.5-turbo" temperature 1.0 count 1 max-tokens ##Inf}}]
+(defn chat [messages & {:keys [model temperature count max-tokens stop presence-penalty frequency-penalty]
+                        :or {model "gpt-3.5-turbo" temperature 1.0 count 1
+                             presence-penalty 0 frequency-penalty 0}}]
+  ;; TODO - stream logit_bias user
   (assert
    (every?
     (fn [msg]
@@ -63,15 +81,21 @@
            (string? (:content msg))))
     messages))
   (assert (>= 2.0 temperature 0.0))
-  (assert (>= max-tokens 1))
-  ;; TOTO - stream stop presence_penalty fequency_penalty logit_bias user
+  (assert (or (nil? max-tokens) (>= max-tokens 1)))
+  (assert (or (nil? stop) (string? stop) (every? string? stop)))
+  (assert (>= 2.0 presence-penalty -2.0))
+  (assert (>= 2.0 frequency-penalty -2.0))
   (json/decode
    (-api-openai
     "chat/completions"
-    :body {:model model
-           :n count :temperature temperature
-           :max_tokens max-tokens
-           :messages messages})))
+    :body (-filter-nil
+           {:model model
+            :n count :temperature temperature
+            :max_tokens max-tokens
+            :stop stop
+            :presence_penalty presence-penalty
+            :frequency_penalty frequency-penalty
+            :messages messages}))))
 
 ;;;;; File-related section
 ;;;;;;;;;; Utility

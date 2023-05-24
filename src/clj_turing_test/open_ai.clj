@@ -10,7 +10,7 @@
 ;; Change default client for your whole application:
 (alter-var-root #'org.httpkit.client/*default-client* (fn [_] sni-client/default-client))
 
-(def API_KEY "LOLNOPE")
+(def API_KEY (System/getenv "OPENAI_API_KEY"))
 
 (defn -api-openai [endpoint & {:keys [body multipart version method] :or {version "v1" method :get}}]
   (assert (or (and body (not multipart))

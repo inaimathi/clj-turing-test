@@ -4,6 +4,13 @@ A Clojure library designed to ... well, that part is up to you.
 
 ## Usage
 
+### Installation
+##### Mac OS
+
+```
+brew install portaudio ffmpeg lame sox
+```
+
 FIXME
 
 ## License

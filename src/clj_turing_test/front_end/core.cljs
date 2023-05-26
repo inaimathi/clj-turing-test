@@ -35,7 +35,7 @@
        vec))
 
 (defn send-message! []
-  (swap! messages #(conj % {:role "user" :name @username :content @current-message}))
+  ;; (swap! messages #(conj % {:role "user" :name @username :content @current-message}))
   (if-let [s @socket] (.send s @current-message))
   (reset! current-message ""))
 

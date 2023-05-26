@@ -1,6 +1,7 @@
 (ns clj-turing-test.server
   (:require [clojure.java.io :as io]
             [clojure.edn :as edn]
+            [clojure.pprint :as pp]
             [hiccup.core :as hic]
             [org.httpkit.server :as server]
             [bidi.ring :as bring]
@@ -10,43 +11,60 @@
 
             [clj-turing-test.model :as model]))
 
+(defn -sess [req]
+  (if (get-in req [:session :user-id])
+    (:session req)
+    (assoc (:session req) :user-id (str (java.util.UUID/randomUUID)))))
+
+(defn -uid [req] (get-in req [:session :user-id]))
+
 (defn serve-resource
   [name content-type]
   (fn [req]
     {:status 200
      :headers {"Content-Type" (str content-type "; charset=utf-8")}
-     :body (slurp (io/resource name))}))
+     :body (slurp (io/resource name))
+     :session (-sess req)}))
 
 (def games (atom {}))
 
 (defn game-socket [req]
-  (server/with-channel req conn
-    (let [game-id (get-in req [:route-params :game-id])]
-      (swap! games #(assoc-in % [game-id :sockets conn] true))
-      (println conn " connected")
-      (server/on-close
-       conn
-       (fn [status]
-         (swap! games #(update-in % [game-id :sockets] dissoc conn))
-         (println conn " disconnected")))
-      (server/on-receive
-       conn
-       (fn [data]
-         (println "RECEIVED: " conn data req))))))
+  (if-let [user-id (-uid req)]
+    (server/with-channel req conn
+      (let [game-id (get-in req [:route-params :game-id])]
+        (swap! games #(assoc-in % [game-id :sockets conn] true))
+        (println conn " connected")
+        (server/on-close
+         conn
+         (fn [status]
+           (swap! games #(update-in % [game-id :sockets] dissoc conn))
+           (println conn " disconnected")))
+        (server/on-receive
+         conn
+         (fn [data]
+           (println "RECEIVED: "
+                    (with-out-str
+                      (pp/pprint
+                       {:conn conn
+                        :user-id user-id :game-id game-id
+                        :data data :req req})))))))))
 
-(defn broadcast! [game-id msg]
-  (doseq [game (get @games game-id)]
-    (server/send! (key game) msg false)))
+(defn broadcast! [game-id msg & {:keys [ignore] :or {ignore #{}}}]
+  (doseq [entry (get @games game-id)]
+    (if (not (ignore (val entry)))
+      (server/send! (key entry) msg false))))
 
 (defn public-address! [msg]
   (doseq [game-id (keys @games)]
     (broadcast! game-id msg)))
 
 (defn new-game-page [req]
+  (println (str req))
   (let [game-id (str (java.util.UUID/randomUUID))]
     (swap! games #(update-in % [game-id :model] (fn [_] (model/mk-turing-test ["inaimathi"] 3))))
     {:status 302
-     :headers {"Location" (str "/game/" game-id "/")}}))
+     :headers {"Location" (str "/game/" game-id "/")}
+     :session (-sess req)}))
 
 (defn game-page [req]
   {:status 200
@@ -57,7 +75,8 @@
            [:body
             [:div {:id "screen"}
              [:h3 "Welcome to"]
-             [:h1 "Turing Test"]]]])})
+             [:h1 "Turing Test"]]]])
+   :session (-sess req)})
 
 (defn home-page [req]
     {:status 200
@@ -72,9 +91,10 @@
                  (fn [[game-id struct]]
                    [:li
                     [:a {:href (str "/game/" game-id "/")} game-id]
-                    [:pre (str [game-id struct])]])
+                    [:pre (with-out-str (pp/pprint [game-id struct]))]])
                  @games)]]
-              [:a {:href "/new-game"} "New Game"]]])})
+              [:a {:href "/new-game"} "New Game"]]])
+     :session (-sess req)})
 
 (defn tap [req]
   {:status 200
@@ -83,7 +103,8 @@
           [:html
            [:head]
            [:body
-            [:pre (str req)]]])})
+            [:pre (str req)]]])
+   :session (-sess req)})
 
 (def routes
   ["" [["" home-page]

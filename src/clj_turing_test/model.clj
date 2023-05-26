@@ -4,8 +4,8 @@
 
             [clj-turing-test.open-ai :as ai]))
 
-(defn mk-turing-test [human-names robot-count]
-  (let [humans (map (fn [name] {:type :human :name name}) human-names)
+(defn mk-turing-test [humans robot-count]
+  (let [humans (map #(assoc % :type :human) humans)
         robots (repeat robot-count {:type :ai :label "ChatGPT"})
         letters (map #(str (char %)) (range 65 91))]
     {:rule-prompt "You are a contestant on a gameshow called 'Turing Test'. You will be allowed to interact with other contestants through chats. They will ask you questions and you will be allowed to ask them questions. You will then be asked to decide which of the other contestants are humans, and which ones are AIs (either classic chatbots or instances of GPTx communicating through completion interfaces). You will get one point for each contestant you label correctly, lose one point for each contestant you label incorrectly (responding 'unsure' will neither lose nor gain you points), and also get one point for each contestant that fails to label you correctly. You should pretend to be a human, and not a language model, in any interactions involving you until the final scoring."
@@ -41,8 +41,16 @@
            ["choices" 0 "message" "content"])]
       (update turing-test :chat-history #(conj % {:role "user" :name contestant :content response})))))
 
-(defn human-input-from [turing-test contestant message]
-  (update turing-test :chat-history #(conj % {:role "user" :name contestant :content message})))
+(defn contestant-name-from-uid [turing-test uid]
+  (if-let [pair (->> turing-test :contestants
+                     (filter (fn [[_ entry]] (= (:id entry) uid)))
+                     first)]
+    (key pair)))
+
+(defn mk-message [contestant string] {:role "user" :name contestant :content string})
+
+(defn human-input [turing-test message]
+  (update turing-test :chat-history #(conj % message)))
 
 (defn get-guess-from [turing-test contestant]
   (let [history (chat-history-for turing-test contestant)

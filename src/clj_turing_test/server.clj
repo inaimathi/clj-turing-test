@@ -28,6 +28,14 @@
 
 (def games (atom {}))
 
+(defn broadcast! [game-id msg]
+  (doseq [entry (get-in @games [game-id :sockets])]
+    (server/send! (key entry) msg false)))
+
+(defn public-address! [msg]
+  (doseq [game-id (keys @games)]
+    (broadcast! game-id msg)))
+
 (defn game-socket [req]
   (if-let [user-id (-uid req)]
     (server/with-channel req conn
@@ -42,29 +50,20 @@
         (server/on-receive
          conn
          (fn [data]
-           (println "RECEIVED: "
-                    (with-out-str
-                      (pp/pprint
-                       {:conn conn
-                        :user-id user-id :game-id game-id
-                        :data data :req req})))))))))
-
-(defn broadcast! [game-id msg & {:keys [ignore] :or {ignore #{}}}]
-  (doseq [entry (get @games game-id)]
-    (if (not (ignore (val entry)))
-      (server/send! (key entry) msg false))))
-
-(defn public-address! [msg]
-  (doseq [game-id (keys @games)]
-    (broadcast! game-id msg)))
+           (let [game (get-in @games [game-id :model])
+                 contestant (model/contestant-name-from-uid game user-id)
+                 msg (model/mk-message contestant data)]
+             (swap! games #(update-in % [game-id :model] (fn [turing-test] (model/human-input turing-test msg))))
+             (broadcast! game-id (str msg)))))))))
 
 (defn new-game-page [req]
   (println (str req))
-  (let [game-id (str (java.util.UUID/randomUUID))]
-    (swap! games #(update-in % [game-id :model] (fn [_] (model/mk-turing-test ["inaimathi"] 3))))
-    {:status 302
-     :headers {"Location" (str "/game/" game-id "/")}
-     :session (-sess req)}))
+  (if-let [user-id (-uid req)]
+    (let [game-id (str (java.util.UUID/randomUUID))]
+      (swap! games #(update-in % [game-id :model] (fn [_] (model/mk-turing-test [{:id user-id :name "inaimathi"}] 3))))
+      {:status 302
+       :headers {"Location" (str "/game/" game-id "/")}
+       :session (-sess req)})))
 
 (defn game-page [req]
   {:status 200

@@ -23,15 +23,38 @@
 (defn chat-history-for [turing-test contestant]
   (let [personalized-messages (map
                                (fn [msg]
-                                 (if (and (= (:role msg) "user") (= (:name msg) contestant))
-                                   {:role "assistant" :content (:content msg)}
+                                 (if (and (= (:role msg) :user) (= (:name msg) contestant))
+                                   {:role :assistant :content (:content msg)}
                                    msg))
                                (:chat-history turing-test))]
     (vec
      (concat
-      [{:role "system" :content (:rule-prompt turing-test)}
-       {:role "system" :content (prompt-for (:contestants turing-test) contestant)}]
+      [{:role :system :content (:rule-prompt turing-test)}
+       {:role :system :content (prompt-for (:contestants turing-test) contestant)}]
       personalized-messages))))
+
+(defn check-speaker [turing-test]
+  (let [prompt (concat
+                [{:role :system :content "You are the moderator on a gameshow called 'Turing Test'. It is a contest where some number of humans and some number of AIs try to deceive each other about whether they are human or AI while also trying to determine their opponents identity. Your job is to evaluate the list of contestants and tell me whether and which of the AIs should respond next."}
+                 {:role :system :content
+                  (str "The current contestants are "
+                       (->> turing-test :contestants (map (fn [[k v]] [k (:type v)])) (into {}) str)
+                       ", and their chat history follows:")}]
+                (:chat-history turing-test)
+                [{:role :system :content
+                  (str "Given that history, which AI contestants of "
+                       (->> turing-test :contestants (filter (fn [[k v]] (= (:type v) :ai))) (map first) (str/join ", "))
+                       " (if any) should speak next. Please submit your response as a JSON array of type [String] with no other commentary.")}])]
+    (if-let [choices (get-in (ai/chat prompt) ["choices" 0 "message" "content"])]
+      (json/decode choices))))
+
+(ai/chat
+ [{:role :system :content "You are the moderator on a gameshow called 'Turing Test'. It is a contest where some number of humans and some number of AIs try to deceive each other about whether they are human or AI while also trying to determine their opponents identity. Your job is to evaluate the list of contestants and tell me whether and which of the AIs should respond next."}
+  {:role :system :content "The current contestants are {\"A\" :ai, \"B\" :ai, \"C\" :human, \"D\" :ai}, and their chat history follows:"}
+  {:role :user, :name "C", :content "Testing testing"}
+  {:role :user, :name "C", :content "Ok, so I guess I'm \"c\""}
+  {:role :user, :name "C", :content "lalala"}
+  {:role :system :content "Given that history, which AI contestants of \"A\", \"B\" or \"D\" (if any) should speak next. Please submit your response as a JSON array of type [String] with no other commentary."}])
 
 (defn get-input-from [turing-test contestant]
   (when (= (get-in turing-test [:contestants contestant :type]) :ai)
@@ -39,7 +62,7 @@
           (get-in
            (ai/chat (chat-history-for turing-test contestant))
            ["choices" 0 "message" "content"])]
-      (update turing-test :chat-history #(conj % {:role "user" :name contestant :content response})))))
+      (update turing-test :chat-history #(conj % {:role :user :name contestant :content response})))))
 
 (defn contestant-name-from-uid [turing-test uid]
   (if-let [pair (->> turing-test :contestants
@@ -47,7 +70,7 @@
                      first)]
     (key pair)))
 
-(defn mk-message [contestant string] {:role "user" :name contestant :content string})
+(defn mk-message [contestant string] {:role :user :name contestant :content string})
 
 (defn human-input [turing-test message]
   (update turing-test :chat-history #(conj % message)))
@@ -56,7 +79,7 @@
   (let [history (chat-history-for turing-test contestant)
         res (ai/chat (conj
                    history
-                   {:role "system"
+                   {:role :system
                     :content
                     (str "This concludes the current game of 'Turing Test'. You may now stop pretending to be a human. Please submit your guess about each contestant (you may label them 'ai', 'human' or 'unsure'), format it as a JSON object of type Map String -> (AI | Human | Unsure) with no other commentary: "
                          (->> (dissoc (:contestants turing-test) contestant) keys (str/join ", ")))}))]

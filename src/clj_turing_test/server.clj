@@ -28,6 +28,28 @@
 
 (def games (atom {}))
 
+(def player
+  (Thread.
+   (fn []
+     (while true
+       (try
+         (swap!
+          games
+          #(let [game-id (rand-nth (keys %))]
+             (println "Playing in " game-id "...")
+             (update-in
+              % [game-id :model]
+              (fn [tt]
+                (let [contestant (model/check-speaker tt)]
+                  (println "  speaking for " contestant "...")
+                  (let [res (model/get-input-from tt contestant)
+                        latest (->> res :chat-history last)]
+                    (println "    they said " (:content latest) "...")
+                    (broadcast! game-id (str latest))
+                    res))))))
+         (finally (Thread/sleep (* (rand-int 5) 1000))))))))
+
+
 (defn broadcast! [game-id msg]
   (doseq [entry (get-in @games [game-id :sockets])]
     (server/send! (key entry) msg false)))

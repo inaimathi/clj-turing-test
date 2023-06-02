@@ -34,7 +34,8 @@
       personalized-messages))))
 
 (defn check-speaker [turing-test]
-  (let [prompt (concat
+  (let [AIs (->> turing-test :contestants (filter (fn [[k v]] (= (:type v) :ai))) (map first))
+        prompt (concat
                 [{:role :system :content "You are the moderator on a gameshow called 'Turing Test'. It is a contest where some number of humans and some number of AIs try to deceive each other about whether they are human or AI while also trying to determine their opponents identity. Your job is to evaluate the list of contestants and tell me whether and which of the AIs should respond next."}
                  {:role :system :content
                   (str "The current contestants are "
@@ -42,19 +43,14 @@
                        ", and their chat history follows:")}]
                 (:chat-history turing-test)
                 [{:role :system :content
-                  (str "Given that history, which AI contestants of "
-                       (->> turing-test :contestants (filter (fn [[k v]] (= (:type v) :ai))) (map first) (str/join ", "))
-                       " (if any) should speak next. Please submit your response as a JSON array of type [String] with no other commentary.")}])]
-    (if-let [choices (get-in (ai/chat prompt) ["choices" 0 "message" "content"])]
-      (json/decode choices))))
-
-(ai/chat
- [{:role :system :content "You are the moderator on a gameshow called 'Turing Test'. It is a contest where some number of humans and some number of AIs try to deceive each other about whether they are human or AI while also trying to determine their opponents identity. Your job is to evaluate the list of contestants and tell me whether and which of the AIs should respond next."}
-  {:role :system :content "The current contestants are {\"A\" :ai, \"B\" :ai, \"C\" :human, \"D\" :ai}, and their chat history follows:"}
-  {:role :user, :name "C", :content "Testing testing"}
-  {:role :user, :name "C", :content "Ok, so I guess I'm \"c\""}
-  {:role :user, :name "C", :content "lalala"}
-  {:role :system :content "Given that history, which AI contestants of \"A\", \"B\" or \"D\" (if any) should speak next. Please submit your response as a JSON array of type [String] with no other commentary."}])
+                  (str "Given that history, which AI contestant of "
+                       (str/join ", " AIs)
+                       " (if any) should speak next. Please submit your response as a JSON value String with no other commentary.")}])]
+    (if-let [choice (get-in (ai/chat prompt) ["choices" 0 "message" "content"])]
+      (let [choice (json/decode choice)]
+        (if ((set AIs) choice)
+          choice
+          (rand-nth AIs))))))
 
 (defn get-input-from [turing-test contestant]
   (when (= (get-in turing-test [:contestants contestant :type]) :ai)

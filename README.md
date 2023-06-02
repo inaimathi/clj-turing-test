@@ -1,6 +1,6 @@
 # clj-turing-test
 
-A Clojure library designed to ... well, that part is up to you.
+A dumb web game intender to explore the OpenAI API
 
 ## Usage
 
@@ -8,10 +8,11 @@ A Clojure library designed to ... well, that part is up to you.
 ##### Mac OS
 
 ```
-brew install portaudio ffmpeg lame sox
+brew install portaudio ffmpeg lame sox leiningen
+OPENAI_API_KEY=<your key here> lein run
 ```
 
-FIXME
+Then browse to `http://localhost:4646`
 
 ## License
 
